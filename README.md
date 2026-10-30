@@ -1,127 +1,246 @@
 # Small Wonders
 
-> **“A place for the things you almost missed.”**
+> A private, distraction-free digital field journal for recording the quiet, fleeting details of everyday life.
 
-Small Wonders is a private digital field journal for people who enjoy noticing the quiet, fleeting details of everyday life: the geometry of afternoon light on a kitchen wall, a tiny fern growing between paving stones, the mechanical sigh of a station clock before the hour, or a worn architectural lintel.
-
-Built with **React 18**, **TypeScript**, **Vite**, **Three.js / React Three Fiber**, **Firebase Authentication**, **Cloud Firestore**, **Vercel Serverless Functions**, **Firebase Admin SDK**, **Upstash Redis**, and **Zod-compatible strict runtime schemas**.
-
----
-
-## 1. Architecture & Non-Negotiable Security Boundary
-
-Small Wonders enforces a strict **Client-Read / Serverless-Write** security boundary:
-
-- **Direct Authorized Reads (`Client → Cloud Firestore`)**:
-  The browser client reads only documents under `users/{uid}` and `users/{uid}/entries/{entryId}` that belong to the currently authenticated user. Client-side code never calls `addDoc`, `setDoc`, `updateDoc`, or `deleteDoc`.
-- **Deployed Firestore Security Rules (`firestore.rules`)**:
-  All client-side writes (`create`, `update`, `delete`) are unconditionally denied (`allow create, update, delete: if false;`). List queries are bounded (`request.query.limit <= 50`), cross-user reads are denied, and all unrecognized paths default-deny.
-- **Serverless Write API (`Client → Vercel Functions → Firebase Admin SDK → Firestore`)**:
-  Every mutation passes through hardened Vercel Serverless Functions:
-  - `POST /api/entries` (`api/entries/index.ts`) - Create a journal observation.
-  - `PATCH /api/entries/:entryId` (`api/entries/[entryId].ts`) - Update an existing observation in the caller's namespace.
-  - `DELETE /api/entries/:entryId` (`api/entries/[entryId].ts`) - Delete an existing observation in the caller's namespace.
-  - `DELETE /api/account` (`api/account.ts`) - Abuse-resistant account deletion workflow that deletes `users/{uid}/entries` in bounded batches of 100, removes `users/{uid}`, and deletes the Firebase Authentication account.
-
-### Defense-in-Depth Controls on Every Write Endpoint
-
-1. **HTTP Method Allowlist**: Rejects unsupported methods with `405 Method Not Allowed` and an explicit `Allow` header.
-2. **Origin & CORS Policy**: Validates the `Origin` header against `ALLOWED_ORIGINS`; never uses wildcard `*` on authenticated mutation endpoints.
-3. **Payload Size & Content-Type Enforcement**: Requires `application/json` (`415`) and caps request payloads at `16 KB` (`413`) before expensive work.
-4. **Firebase ID Token & Email Verification**: Extracts `Authorization: Bearer <token>`, verifies it via Firebase Admin `verifyIdToken(token, true)` (`401`), derives `uid` exclusively from the verified token, and requires verified email ownership (`403 EMAIL_NOT_VERIFIED`).
-5. **Firebase App Check Verification**: Validates `X-Firebase-AppCheck` header via `admin.appCheck().verifyToken()` when `ENFORCE_APP_CHECK="true"`.
-6. **Persistent Rate Limiting (Upstash Redis)**: Enforces per-UID and per-IP sliding window limits (`create: 12/min`, `update: 20/min`, `delete: 20/min`, `account_delete: 3/hour`, `ip_mutation: 30/min`). Fails closed (`503 Service Unavailable`) if production Redis credentials are unconfigured.
-7. **Strict Runtime Validation (`src/schemas/entry.ts`)**: Enforces title (`1-80` chars), note (`1-500` chars), category enum (`Nature`, `Light`, `Architecture`, `People`, `Sound`, `Unexpected`), normalized tags (`max 5`, `1-24` chars each), valid `observedAt` range (`1970` to `+24h`), optional `placeLabel` (`max 80` chars), and `.strict()` object validation that rejects any client-supplied `uid`, `createdAt`, `updatedAt`, or unknown fields.
+[License: MIT](https://www.google.com/search?q=LICENSE)
+[](https://www.typescriptlang.org/)
+[](https://react.dev/)
+[](https://vitejs.dev/)
+[](https://threejs.org/)
+[](https://firebase.google.com/)
+[](https://vercel.com/)
 
 ---
 
-## 2. Design Direction & Applied Skills
+## Overview
 
-- **Brief Inference (Design Read)**:
-  *"Reading this as: Editorial consumer field-journal web application and landing experience for observant readers and writers, with a quiet tactile botanical-print language, leaning toward bespoke CSS tokens + Instrument Serif & DM Sans + restrained scroll choreography and sculptural 3D paper topography."*
-- **Configured Dials**:
-  - `DESIGN_VARIANCE: 7` (Asymmetric split hero, varied editorial section compositions, strict single-column collapse below `768px`)
-  - `MOTION_INTENSITY: 6` (Fluid CSS and scroll-linked reveals, interactive 3D afternoon sun-angle control, full `prefers-reduced-motion` compliance)
-  - `VISUAL_DENSITY: 3` (Independent print publication breathing room, generous negative space, thin `#DEDCD2` editorial rules)
-- **Color Palette**:
-  - Warm Paper Light Mode: Warm Ivory (`#F6F3EA`), Paper White (`#FCFBF7`), Deep Forest Ink (`#193B32`), Charcoal (`#252923`), Muted Olive (`#7F8966`), Burnished Amber (`#C58B55`), Quiet Border (`#DEDCD2`), Muted Text (`#5C5F57`).
-  - Nocturnal Dark Mode: Deep Forest Night (`#111815`), Elevated Slate-Moss (`#16201C`), Warm Parchment (`#EDE9DF`), Burnished Amber (`#D49A64`).
+Most modern software is engineered to broadcast, quantify, or accelerate. **Small Wonders** is built for the opposite impulse: pausing for thirty seconds to notice something small before it fades from memory. 
+
+Whether it is a narrow band of afternoon sunlight clearing a kitchen windowsill, a wild fern taking root in a pavement fissure, the metallic sigh of an old station clock before the hour, or an acanthus leaf worn smooth on a limestone doorway, Small Wonders provides an archival digital ledger to preserve those moments.
+
+Designed with an intentional editorial philosophy:
+- **No algorithmic feeds, follower counts, or social streaks**: Your notebook is private by default.
+- **Architectural & cartographic specimen identity**: Designed like a physical botanical ledger, using warm carbon-peat and cotton-rag paper tones, tabular numerals, and border-only surface elevation.
+- **Non-negotiable security boundary**: Read-only client Firestore security rules paired with hardened, rate-limited serverless functions.
+- **Zero-config sandbox mode**: Runs immediately in the browser with full offline mock storage, transitioning seamlessly to live Firebase and Upstash infrastructure when credentials are provided.
 
 ---
 
-## 3. Step-by-Step Setup & Deployment Guide (14 Steps)
+## Key Features
 
-### Step 1: Create a Firebase Project
-1. Open the [Firebase Console](https://console.firebase.google.com/) and create a new project (e.g., `small-wonders-prod`).
-2. Register a new **Web App** inside the project settings and copy the client configuration values (`apiKey`, `authDomain`, `projectId`, `storageBucket`, `messagingSenderId`, `appId`).
+### 1. Asymmetric Field Specimen Ledger
+- Record observations in under thirty seconds with an 80-character title, 500-character field note, and optional manual place label.
+- Categorize records across 6 curated observation lenses: `Light`, `Nature`, `Architecture`, `People`, `Sound`, and `Unexpected`.
+- Tag entries with up to 5 lowercase normalized tags (`#solstice`, `#botany`, `#masonry`).
+- Zero background GPS tracking: Place descriptions are purely manual text strings.
 
-### Step 2: Enable Authentication Providers
-1. In Firebase Console → **Authentication** → **Sign-in method**, enable:
-   - **Email/Password** (leave passwordless email link disabled unless needed).
-   - **Google** (configure your support email and save).
+### 2. Interactive 3D Topographic Observatory
+- Procedurally generated sculpted terrain relief featuring shaded elevation quads and glowing iso-contour terraces.
+- Dual intersecting astrolabe meridian gimbals and an orbiting solar azimuth node.
+- Live ember sun-angle slider (`120°` to `260°`) that dynamically recalculates scene shadows and lighting temperatures.
+- 3 interactive 3D specimen sculptures:
+  - **Specimen 01 (Light)**: Solstice prism core with crystalline cage and equatorial halo.
+  - **Specimen 02 (Nature)**: Unfurling 6-tier botanical phyllotaxis spire.
+  - **Specimen 03 (Sound)**: Concentric acoustic wavefield with harmonic resonator core.
+- Dynamic dual-mode rendering: WebGL/Three.js with graceful fallback to a high-precision `<canvas>` 3D perspective projection engine.
 
-### Step 3: Configure Authorized Domains
-1. In **Authentication** → **Settings** → **Authorized domains**, verify `localhost` is present and add your production Vercel domain (e.g., `small-wonders.vercel.app` or your custom domain).
+### 3. Floating Island Pill Header
+- Starts full-width, borderless, and transparent at the top of the viewport.
+- Smoothly animates into a centered floating island pill (`backdrop-filter: blur(16px)`, `border-radius: 9999px`) on scroll, with smooth reverse animation when returning to the top.
 
-### Step 4: Configure Email Verification and Password-Reset Emails
-1. In **Authentication** → **Templates**, customize the **Email address verification** and **Password reset** templates with your sender name (`Small Wonders`) and action URL.
+### 4. Archival Dual-Theme System
+- **Carbon Mode**: Warm carbon-peat (`#0C0B0A`), matte charcoal (`#151311`), and terracotta-vermilion (`#E04F26`) survey accents.
+- **Paper Mode**: Warm cotton-rag paper (`#F7F4EE`), crisp white surfaces (`#FFFFFF`), graphite ink (`#181614`), and archival vermilion (`#C83E14`).
+- Border-only surface elevation: Eliminates fake shadow doubling, reserving elevation shadows strictly for floating dialogs and toasts.
 
-### Step 5: Initialize Cloud Firestore
-1. In Firebase Console → **Firestore Database**, create a database in **Production mode** in the region closest to your users.
+### 5. Client-Read / Serverless-Write Security Architecture
+- **Direct Client Reads**: The browser client reads strictly from `users/{uid}` and `users/{uid}/entries/{entryId}`. Client code contains zero Firestore write calls.
+- **Strict Firestore Rules**: All client-side `create`, `update`, and `delete` operations are unconditionally blocked (`allow create, update, delete: if false;`). Unbounded queries (`> 50`) and cross-user paths are rejected.
+- **Verified Serverless Mutations**: All database writes pass through Vercel Serverless Functions powered by the Firebase Admin SDK.
+- **Sliding-Window Rate Limiting**: Upstash Redis sliding-window counters protect against automated spam and brute force (fails closed in production if rate-limit infrastructure is unreachable).
+- **Strict Payload Validation**: Zod-compatible runtime schema enforcement rejects unknown properties, client-supplied timestamps, and ownership spoofing.
 
-### Step 6: Deploy Firestore Security Rules
-```bash
-npx firebase-tools deploy --only firestore:rules
+### 6. Full Data Ownership & Privacy
+- One-click JSON journal export from the Settings view.
+- Complete, atomic account deletion workflow (`DELETE /api/account`) that batches deletion of all stored Firestore records and removes the Firebase Authentication profile.
+
+---
+
+## Architecture & Security Model
+
+```
+                    ┌────────────────────────────────────────────────────────┐
+                    │                   Browser Client                       │
+                    └───────────┬────────────────────────────────┬───────────┘
+                                │                                │
+                      Read-Only │ Direct Reads       Mutations   │ POST / PATCH / DELETE
+                   (Scoped UID) │ (Client SDK)       (Bearer ID) │ (JSON Payloads)
+                                ▼                                ▼
+                    ┌──────────────────────┐         ┌───────────────────────┐
+                    │   Cloud Firestore    │         │   Vercel Serverless   │
+                    │   (firestore.rules)  │         │   Functions (/api)    │
+                    │                      │         └───────────┬───────────┘
+                    │ allow create, update,│                     │ 1. Origin / Method Allowlist
+                    │ delete: if false;    │                     │ 2. Payload Cap (16 KB)
+                    │ allow read: if auth  │                     │ 3. verifyIdToken(token, true)
+                    │ && uid == auth.uid;  │                     │ 4. Upstash Rate Limiting
+                    └───────────▲──────────┘                     │ 5. Strict Schema Validation
+                                │                                │
+                                └────────────────────────────────┘
+                                    Firebase Admin SDK Mutations
 ```
 
-### Step 7: Deploy Firestore Composite Indexes
+### Serverless API Endpoints
+
+| Method | Endpoint | Description | Rate Limit |
+|---|---|---|---|
+| `POST` | `/api/entries` | Create a new observation record | 12 req / min |
+| `PATCH` | `/api/entries/:entryId` | Update an existing observation owned by caller | 20 req / min |
+| `DELETE` | `/api/entries/:entryId` | Delete an observation owned by caller | 20 req / min |
+| `DELETE` | `/api/account` | Batched atomic removal of all entries and user account | 3 req / hour |
+
+---
+
+## Tech Stack
+
+- **Frontend**: React 18, TypeScript, Vite, Three.js, React Three Fiber.
+- **Design System**: Vanilla CSS custom properties, fluid typographic scale (`clamp()`), concentric radii tokens, `@media (hover: hover)` interaction gating.
+- **Backend**: Vercel Serverless Functions, Node.js, Firebase Admin SDK.
+- **Database & Identity**: Google Cloud Firestore, Firebase Authentication, Firebase App Check (reCAPTCHA Enterprise).
+- **Rate Limiting**: Upstash Redis (`@upstash/ratelimit`).
+- **Testing & QA**: Playwright, Selenium WebDriver (Headless Chromium), Node.js native test runner, Babel AST typechecking.
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Node.js 18+
+- npm or pnpm
+
+### Installation
+
 ```bash
-npx firebase-tools deploy --only firestore:indexes
-```
+# Clone the repository
+git clone https://github.com/your-username/small-wonders.git
+cd small-wonders
 
-### Step 8: Configure Firebase App Check (Recommended for Production)
-1. In Firebase Console → **App Check**, register your web app with **reCAPTCHA Enterprise** and copy the site key into `VITE_FIREBASE_APPCHECK_SITE_KEY`.
-2. Set `VITE_ENABLE_APP_CHECK="true"` and `ENFORCE_APP_CHECK="true"`.
-
-### Step 9: Set Up Persistent Rate Limiting (Upstash Redis)
-1. Create a Redis database in [Upstash Console](https://console.upstash.com/).
-2. Copy the REST URL and REST Token into `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
-
-### Step 10: Configure Firebase Admin Credentials
-1. In Firebase Console → **Project Settings** → **Service accounts**, click **Generate new private key**.
-2. Store the JSON string in the server-only `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` variable (or set `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`, and `FIREBASE_ADMIN_PRIVATE_KEY`). Never prefix these with `VITE_`.
-
-### Step 11: Add Vercel Environment Variables
-1. Copy all required variables from `.env.example` into your Vercel Project Settings → **Environment Variables**.
-2. Ensure `ALLOWED_ORIGINS` lists your exact production origin (e.g., `https://small-wonders.vercel.app`).
-
-### Step 12: Run the Application Locally
-```bash
-cp .env.example .env.local
+# Install dependencies
 npm install
+
+# Start local development server (runs with local sandbox storage out of the box)
 npm run dev
 ```
-*(Note: If `.env.local` retains placeholder values, the client automatically runs in **Local Sandbox Mode** so you can explore the UI, 3D hero, and full journal workflow immediately prior to connecting cloud credentials.)*
 
-### Step 13: Run Firebase Emulators and Tests
+Visit `http://localhost:5173` to explore the landing page, 3D observatory, and notebook dashboard.
+
+---
+
+## Deployment & Production Configuration
+
+To deploy Small Wonders to production with live Firebase and Upstash infrastructure:
+
+### 1. Environment Configuration
+
+Copy `.env.example` to `.env.local` and configure your credentials:
+
 ```bash
-# Run TypeScript verification, Unit tests, Firestore Rules tests, and API Security tests
-npm run typecheck
-npm test
-
-# Run End-to-End Headless Browser Tests
-npm run test:e2e
+cp .env.example .env.local
 ```
 
-### Step 14: Deploy to Vercel
+#### Client Variables (Vite)
+```env
+VITE_FIREBASE_API_KEY=your_firebase_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+VITE_FIREBASE_APP_ID=your_app_id
+VITE_ENABLE_APP_CHECK=false
+VITE_FIREBASE_APPCHECK_SITE_KEY=your_recaptcha_site_key
+```
+
+#### Server Variables (Vercel Serverless Functions)
+```env
+FIREBASE_ADMIN_PROJECT_ID=your_project_id
+FIREBASE_ADMIN_CLIENT_EMAIL=firebase-adminsdk@your_project.iam.gserviceaccount.com
+FIREBASE_ADMIN_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+UPSTASH_REDIS_REST_URL=https://your-database.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your_upstash_token
+ALLOWED_ORIGINS=https://small-wonders.vercel.app
+ENFORCE_APP_CHECK=false
+```
+
+### 2. Deploy Firestore Rules and Indexes
+
 ```bash
-npx vercel --prod
+npx firebase-tools deploy --only firestore:rules,firestore:indexes
+```
+
+### 3. Deploy to Vercel
+
+```bash
+npx vercel deploy --prod
 ```
 
 ---
 
-## 4. Known Limitations & Owner Review Notes
+## Verification & Test Suite
 
-- **Legal Templates**: The `/terms`, `/privacy`, `/cookies`, and `/accessibility` routes accurately describe the implemented application architecture, storage mechanisms, and third-party providers (Firebase, Vercel, Upstash), but must be reviewed by the project owner and legal counsel for jurisdiction-specific requirements before commercial use. Configure `VITE_PUBLIC_CONTACT_EMAIL` and operator details in `.env`.
-- **Provider Reauthentication on Account Deletion**: `DELETE /api/account` deletes all Firestore entries and the Firebase Auth user on the server using the Firebase Admin SDK, which does not require client-side reauthentication if the user holds a valid, non-revoked ID token.
-- **Search Scope**: To prevent downloading unbounded collections on the client, keyword search filters the currently loaded archive pages while category filtering and date sorting execute via indexed Firestore cursor pagination.
+The project includes an end-to-end and security test suite covering browser DOM audits, headless viewport responsiveness, and API authorization:
+
+```bash
+# Run TypeScript compilation check across all 37 files
+npm run typecheck
+
+# Run unit tests, schema validators, and API security checks
+npm run test:unit
+
+# Run full Headless Chromium E2E verification (Desktop 1440x900 & Mobile 390x844)
+npm run test:e2e
+
+# Run complete production build verification
+npm run build
+```
+
+---
+
+## Project Structure
+
+```
+small-wonders/
+├── api/                        # Vercel serverless function handlers
+│   ├── _lib/                   # Shared auth, rate limiting, and validation helpers
+│   ├── entries/                # Observation creation, update, and deletion endpoints
+│   └── account.ts              # Account deletion handler
+├── firestore.rules             # Production Cloud Firestore security rules
+├── firestore.indexes.json      # Firestore composite index definitions
+├── public/                     # Static images and brand assets
+├── src/
+│   ├── app/                    # Root application component and routing
+│   ├── components/
+│   │   ├── layout/             # Header island, PublicLayout, and AppShell
+│   │   ├── three/              # 3D Topographic Observatory scene and fallbacks
+│   │   └── ui/                 # Primitives (Button, SpotlightCard, InputField)
+│   ├── features/
+│   │   ├── auth/               # Firebase Authentication context and hooks
+│   │   └── journal/            # Firestore client-read context and cache
+│   ├── pages/
+│   │   ├── app/                # Authenticated views (Dashboard, Archive, Editor, Settings)
+│   │   ├── auth/               # Sign-in, sign-up, and password recovery
+│   │   └── public/             # Landing page and Read-mode legal documents
+│   ├── schemas/                # Strict Zod runtime validation schemas
+│   └── styles/
+│       └── theme.css           # Direction Contract tokens and component styles
+├── tests/
+│   ├── unit/                   # Unit schemas and read rule tests
+│   ├── integration/            # Firestore security and API rate limit tests
+│   └── e2e/                    # Headless Chromium automated workflow tests
+└── vercel.json                 # Vercel serverless build and routing configuration
+```
+
+---
+
+## License
+
+Distributed under the MIT License. See [LICENSE](https://www.google.com/search?q=LICENSE) for details.
