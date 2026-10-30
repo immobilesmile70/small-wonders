@@ -1,0 +1,56 @@
+{
+  "name": "small-wonders",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small Wonders - A private digital field journal for noticing the quiet details of everyday life.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node scripts/build-verify.mjs",
+    "build:vite": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "test:unit": "node scripts/run-tests.mjs unit",
+    "test:security": "node scripts/run-tests.mjs security",
+    "test:rules": "node scripts/run-tests.mjs rules",
+    "test:e2e": "python3 tests/e2e/run_e2e.py",
+    "emulators": "firebase emulators:start --only auth,firestore"
+  },
+  "dependencies": {
+    "@fontsource/dm-sans": "5.1.0",
+    "@fontsource/instrument-serif": "5.1.0",
+    "@fontsource/jetbrains-mono": "5.1.0",
+    "@react-three/drei": "9.114.0",
+    "@react-three/fiber": "8.17.10",
+    "@upstash/ratelimit": "2.0.4",
+    "@upstash/redis": "1.34.3",
+    "firebase": "10.14.1",
+    "firebase-admin": "12.7.0",
+    "lucide-react": "0.454.0",
+    "motion": "11.11.17",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "6.28.0",
+    "three": "0.170.0",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "3.0.4",
+    "@playwright/test": "1.48.2",
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.0.1",
+    "@types/node": "20.17.6",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@types/three": "0.170.0",
+    "@vitejs/plugin-react": "4.3.3",
+    "typescript": "5.6.3",
+    "vercel": "39.1.2",
+    "vite": "5.4.11",
+    "vitest": "2.1.5"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  }
+}
